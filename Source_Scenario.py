@@ -1,52 +1,12 @@
-
 from Channel import Channel
 import random
 import argparse
 import time
+import Common_methods
 
 import pyerasure.block as pyblock
 import pyerasure.finite_field
 import pyerasure.block.generator as pygenerator
-
-
-
-def compute_total_frames(array):
-    frames = 0
-    for i in array:
-        frames += i
-    return frames
-
-def compute_total_transmitted_packets(array):
-    packets = 0
-    for i in array:
-        packets += i
-    return packets
-
-def compute_total_lost_packets(array):
-    lost = 0
-    for i in array:
-       lost += i
-    return lost
-
-def compute_total_useful_packets(array):
-    useful = 0
-    for i in array:
-        useful += i
-    return useful
-
-def compute_average_throughput(array):
-    throughput = 0
-    for i in array:
-        throughput += i
-    return throughput/len(array)
-
-def compute_average_delay(array):
-    delay = 0
-    for i in array:
-        delay += i
-    return delay/len(array)
-
-
 
 
 def main():
@@ -74,7 +34,6 @@ def main():
     total_transmitted_packets = [] #Array for storing total transmitted packets per block
     total_useful_packets = []  #Array of useful packets per block
     total_lost_packets = []  #Array of lost packets per block
-
 
 
     num_links = int(input("Define the number of links for the simulation : "))
@@ -152,8 +111,6 @@ def main():
         source_counter_start = 0
         packet_arrived_and_decoded_frame_dict = {} # Pair with index of encoder_symbol : [frame_arrived,frame_decoded]
 
-
-
         while not decoder.is_complete():
 
             for channel in channels:
@@ -204,7 +161,6 @@ def main():
 
                 ending_list = list(packet_arrived_and_decoded_frame_dict)  #In order to show afterward newly added packets for each link
 
-
                 if  starting_list:
                     channel.added_packets.append([x for x in ending_list if x not in starting_list])
                     channel.transmitted_packets += channel.added_packets[-1]
@@ -227,16 +183,23 @@ def main():
             block_frame += 1
             print('\n\n')
 
-
         avg_delay_per_block = 0
         lost_packets_per_block = 0
 
-
-        past_delay = 0
+        delayed_frame_arrived = 0
         for i in packet_arrived_and_decoded_frame_dict:
-            delay = max(past_delay , packet_arrived_and_decoded_frame_dict[i][1] - packet_arrived_and_decoded_frame_dict[i][0])
+
+            delay = 0
+            if packet_arrived_and_decoded_frame_dict[i][1] < delayed_frame_arrived: #In order to wait until past packet is decoded
+                delay += delayed_frame_arrived - packet_arrived_and_decoded_frame_dict[i][1]
+
+            if packet_arrived_and_decoded_frame_dict[i][1] - packet_arrived_and_decoded_frame_dict[i][0] > 0:
+                delay += packet_arrived_and_decoded_frame_dict[i][1] - packet_arrived_and_decoded_frame_dict[i][0]  #Delay between frame arrived and decoded
+                if packet_arrived_and_decoded_frame_dict[i][1] > delayed_frame_arrived:  #Update the max delayed frame in order to use for next packets
+                    delayed_frame_arrived = packet_arrived_and_decoded_frame_dict[i][1]
+
             avg_delay_per_block += delay
-            past_delay = delay
+
 
         avg_delay_per_block = avg_delay_per_block / current_block_size
         data_rate_per_block = (current_block_size * symbol_bytes) / block_frame
@@ -255,7 +218,6 @@ def main():
         for i in channels:
             i.reset_for_encoding_version()
 
-
         print("---------------------------------------")
         print(f"Block {num_of_blocks} was fully decoded!!!")
         print(f"Total frames used for block {num_of_blocks} are {block_frame} frames!")
@@ -265,19 +227,9 @@ def main():
         print(f"Average delay = {avg_delay_per_block:.2f} frame\nThroughput = {data_rate_per_block:.2f} bytes/frame")
         for i in packet_arrived_and_decoded_frame_dict:
             if (packet_arrived_and_decoded_frame_dict[i][1] - packet_arrived_and_decoded_frame_dict[i][0])>0:
-                print(f"Symbol {i} retransmitted {packet_arrived_and_decoded_frame_dict[i][1] - packet_arrived_and_decoded_frame_dict[i][0]} times.")
-        print("---------------------------------------\n\n")
-
-
-
-    end = time.time()
-
-    print("#####-----Statistics-----#####")
-    print(f"Total elapsed time: \t\t{end-start} sec\n")
-    print(f"Blocks which were fully decoded are {num_of_blocks}.\nTotal frames  used  {compute_total_frames(total_frames)}.\nTotal throughput = {compute_total_useful_packets(total_useful_packets)*symbol_bytes/compute_total_frames(total_frames):.2f} bytes/frame."
-          f"\nAverage Throughput = {compute_average_throughput(avg_data_rate):.2f} bytes/frame.\nAverage delay = {compute_average_delay(avg_delay):.2f} frame.\n"
-          f"From total {compute_total_transmitted_packets(total_transmitted_packets)} transmitted packets  {compute_total_lost_packets(total_lost_packets)} are rebroadcasts.")
-
+                print(f"Symbol {i} retransmitted {packet_arrived_and_decoded_frame_dict[i][1] - packet_arrived_and_decoded_frame_dict[i][0]} times.\nTotal throughput = {Common_methods.compute_total(total_useful_packets)*symbol_bytes/Common_methods.compute_total(total_frames):.2f} bytes/frame."
+          f"\nAverage Throughput = {Common_methods.compute_average(avg_data_rate):.2f} bytes/frame.\nAverage delay = {Common_methods.compute_average(avg_delay):.2f} frame.\n"
+          f"From total {Common_methods.compute_total(total_transmitted_packets)} transmitted packets  {Common_methods.compute_total(total_lost_packets)} are rebroadcasts.")
 
 
 if __name__ == "__main__":

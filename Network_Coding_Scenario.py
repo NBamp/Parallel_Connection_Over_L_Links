@@ -1,5 +1,6 @@
 
 from Channel import Channel
+import Common_methods
 import random
 import argparse
 import time
@@ -7,41 +8,6 @@ import time
 import pyerasure.block as pyblock
 import pyerasure.finite_field
 import pyerasure.block.generator as pygenerator
-
-
-
-def compute_total_frames(array):
-    sum_frames = 0
-    for i in array:
-        sum_frames += i
-    return sum_frames
-
-
-def compute_average_throughput(array):
-    throughput = 0
-    for i in array:
-        throughput += i
-    return throughput/len(array)
-
-def compute_average_delay(array):
-    delay = 0
-    for i in array:
-        delay += i
-    return delay/len(array)
-
-def compute_total_successfully_packets(array):
-    packets = 0
-    for i in array:
-        packets += i.total_successfully_transmitted_packets
-    return packets
-
-def compute_unused_packets_per_block_network_coding_version(array):
-    unused = 0
-    for i in array:
-        if i.unused_packets == -1:
-            continue
-        unused += i.unused_packets
-    return unused
 
 
 def main():
@@ -65,7 +31,7 @@ def main():
     avg_data_rate = [] #Array for storing data_rate per block
     avg_delay = [] #Array for storing avg_delay per block
     total_frames = [] #Array for storing number of frames per block
-    total_useful_packets = []  #Array of useful packets per block
+    total_successful_packets = []  #Array of useful packets per block
     total_unuseful_packets = []  #Array of unuseful packets in encoding scenario
 
 
@@ -171,9 +137,9 @@ def main():
 
         avg_delay_per_block = delay_per_block / successfully_transmitted_packets_per_block
         data_rate_per_block = (successfully_transmitted_packets_per_block * symbol_bytes) / block_frame
-        unuseful_packets_per_block = compute_unused_packets_per_block_network_coding_version(channels)
+        unuseful_packets_per_block = Common_methods.compute_unused_packets_per_block_network_coding_version(channels)
 
-        total_useful_packets.append(current_block_size)
+        total_successful_packets.append(current_block_size)
         total_unuseful_packets.append(unuseful_packets_per_block)
         total_frames.append(block_frame)
         avg_data_rate.append(data_rate_per_block)
@@ -189,7 +155,7 @@ def main():
         print(f"Total transmitted packets are {successfully_transmitted_packets_per_block + lost_packets_per_block}")
         print(f"Total successfully transmitted packets are {successfully_transmitted_packets_per_block}")
         print(f"Total lost packets are {lost_packets_per_block}")
-        print(f"Total useful packets are {total_useful_packets[-1]}")
+        print(f"Total useful packets are {total_successful_packets[-1]}")
         print(f"Total unused packets are  {total_unuseful_packets[-1]}")
         print(f"Average delay = {avg_delay_per_block:.2f} frame\nThroughput = {data_rate_per_block:.2f} bytes/frame")
         print("---------------------------------------\n\n")
@@ -199,8 +165,9 @@ def main():
 
     print("#####-----Statistics-----#####")
     print(f"Total elapsed time: \t\t{end-start} sec\n")
-    print(f"Blocks which were fully decoded are {num_of_blocks}.\nTotal frames  used  {compute_total_frames(total_frames)}.\nTotal throughput = {(compute_total_successfully_packets(channels) * symbol_bytes)/compute_total_frames(total_frames):.2f} bytes/frame"
-          f"\nAverage Throughput = {compute_average_throughput(avg_data_rate):.2f} bytes/frame\nAverage delay = {compute_average_delay(avg_delay):.2f} frame")
+    print(f"Blocks which were fully decoded are {num_of_blocks}.\nTotal frames  used  {Common_methods.compute_total(total_frames)}.\nTotal throughput = {(Common_methods.compute_total(total_successful_packets) * symbol_bytes)/Common_methods.compute_total(total_frames):.2f} bytes/frame"
+          f"\nAverage Throughput = {Common_methods.compute_average(avg_data_rate):.2f} bytes/frame\n"
+            f"Average delay = {Common_methods.compute_average(avg_delay):.2f} frame")
 
 
 
