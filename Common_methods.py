@@ -1,13 +1,15 @@
-def compute_total(array):
+from Channel import Channel
+
+def compute_total(array: list[int]):
     return sum(array)
 
-def compute_average(array):
+def compute_average(array: list[int]):
     return sum(array)/len(array)
 
-def compute_unused_packets_per_block_network_coding_version(array):
+def compute_unused_packets_per_block_network_coding_version(channels: list[Channel]):
     unused = 0
-    for i in array:
-        if i.unused_packets == -1:
+    for channel in channels:
+        if channel.unused_packets == -1:
             continue
-        unused += i.unused_packets
+        unused += channel.unused_packets
     return unused
