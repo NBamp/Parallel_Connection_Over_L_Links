@@ -16,11 +16,7 @@
 from typing import Tuple, Union
 from enum import Enum
 
-
 from pyerasure import finite_field
-
-#When using the frame a packet hasn't coefficients_decoded meaning that def _is_coefficients_decoded(packet_index) returns false meaning that the packet is None or it is coded and there coefficients that still cannot be computed.
-#In which ever case we focus that the function returns false
 
 
 class Decoder:
@@ -32,10 +28,10 @@ class Decoder:
         DECODED = 2
 
     def __init__(
-        self,
-        field: Union[finite_field.Binary, finite_field.Binary4, finite_field.Binary8],
-        symbols: int,
-        symbol_bytes: int,
+            self,
+            field: Union[finite_field.Binary, finite_field.Binary4, finite_field.Binary8],
+            symbols: int,
+            symbol_bytes: int,
     ):
         """
         The decoder constructor.
@@ -56,10 +52,9 @@ class Decoder:
         self.delivered_packets = 0 # total number of correct packets delivered to the receiver (received and fully decoded)
         self.decoding_attempts = 0
         self.dm_size = 0
-        self._last_delivered = -1 # index of the latest source packet delivered in-order to the upper layer
-        self.packets_delays = {} # dictionary with packet which is either coefficient_decoded(if it is uncoded) or not(if it is coded) but there is at least one previous packet which is not coefficient_decoded ,storing key:packet_index , value:block_frame in dictionary
+        self.packet_delays = {} # dictionary storing packet index and delivery time
         self.current_timeslot = 0 # helper variable for calculating packet delay, avoid changing decode() signature
-        self.sum_of_delay = 0
+
 
 
     @property
@@ -74,7 +69,7 @@ class Decoder:
 
     @property
     def field(
-        self,
+            self,
     ) -> Union[finite_field.Binary, finite_field.Binary4, finite_field.Binary8]:
         """The chosen finite field."""
         return self._field
@@ -89,23 +84,9 @@ class Decoder:
         """The rank of the decoding matrix."""
         return self._rank
 
-    @property
-    def symbol_status(self):
-        return self._symbol_status
-
-    #Getting packet_arrived_frame
-    def get_packet_frame(self,index):
-        return self.packets_delays[index]
-
-    def set_packets_delays(self, key: int , value: int):
-        self.packets_delays[key] = value
-
-
-    # function to calculate statistics at the end of the block
-    def count_delivered_packets(self):
-        for i in range(self.symbols):
-            if self.is_symbol_decoded(i):
-                self.delivered_packets += 1
+    def update_current_timeslot(self) -> None:
+        """Similar to block_frame """
+        self.current_timeslot += 1
 
 
     def is_complete(self) -> bool:
@@ -126,6 +107,7 @@ class Decoder:
         return self._symbol_status[index] == Decoder.SymbolStatus.MISSING
 
     def is_symbol_pivot(self, index: int) -> bool:
+
         """
         Check if a symbol is a pivot symbol.
 
@@ -187,92 +169,71 @@ class Decoder:
 
         return self._coefficients[index]
 
-    """
-       
-
-        :param symbol: 
-        :param coefficients: 
+    def decode_symbol(self, symbol_data: bytearray, coefficients: bytearray):
         """
+        Feed a coded symbol to the decoder.
 
-    def decode_symbol(self, symbol_data: bytearray, coefficients: bytearray, block_frame: int):
-        """
-
-         Feed a coded symbol to the decoder.
-        :param symbol_data: The data of the symbol assumed to be symbol_bytes()
-                            bytes in size.
+        :param symbol: The data of the symbol assumed to be symbol_bytes()
+                       bytes in size.
         :param coefficients: The coding coefficients that describe the
                              encoding performed on the symbol.
-        :param block_frame: Frame arrived for symbol
-
         """
 
         pivot_index = self.__forward_substitute_to_pivot(symbol_data, coefficients)
 
+
         if pivot_index is None:
             return
 
+        #Adding Coding Packet with arriving time = current_timeslot
+        self.update_packet_delay(pivot_index, "C")
         if not self.field.is_binary():
             self.__normalize(symbol_data, coefficients, pivot_index)
-
 
         self.__forward_substitute_from_pivot(symbol_data, coefficients, pivot_index)
         self.__backward_substitute(symbol_data, coefficients, pivot_index)
 
+
         # Store coded symbol
         self._symbols_data[pivot_index] = symbol_data
         self._coefficients[pivot_index] = coefficients
+
         self._symbol_status[pivot_index] = Decoder.SymbolStatus.PARTIALLY_DECODED
-
-        #The min(self.packets_delays.keys()) refers to the coded packet with the lower packet_index which delays the whole other packets which are on the dictionary.
-        #So as soon as this packet is decoded there is no further delay for any following packet and the average delay can be computed
-        if self.__is_coefficients_decoded(min(self.packets_delays.keys())):
-            self.compute_average_delay(block_frame)
-
         self._rank += 1
 
         self.decoding_attempts += 1
         self.dm_size += self._rank
 
+
         if self.is_complete():
+
+            #The last coded symbol has for a fact delay = 0
+            if pivot_index == self._rank:
+                self.packet_delays[pivot_index] = 0
             # We have decoded all symbols
             self._symbol_status = [Decoder.SymbolStatus.DECODED] * self.symbols
-        else:
-            #Because the decoder is not fully decoded the coded for a fact hasn't efficients_decoded so it adds in the dictionary no matter if the previous packet has or hasn't efficients_decoded
-            self.set_packets_delays(pivot_index,block_frame)
 
 
-    def decode_systematic_symbol(self, symbol_data: bytearray, index: int, block_frame: int):
+    def decode_systematic_symbol(self, symbol_data: bytearray, index: int):
         """
         Feed a systematic, i.e, un-coded symbol to the decoder.
 
         :param symbol_data: The data of the symbol assumed to be symbol_bytes()
          bytes in size.
         :param index: The index of the given symbol.
-
         """
 
         if index >= self.symbols:
             raise ValueError(f"Invalid symbol index {index}")
 
-        #The only problem here is if at least one previous packet of packet_index hasn't coefficients_decoded
-        previous_packet = index - 1
-        while True:
-            if previous_packet >= 0:
-                if not self.__is_coefficients_decoded(previous_packet):
-                    #There is at least one , so I know for a fact tha packet_index had to wait for transmitting in order.
-                    self.set_packets_delays(index, block_frame)
-                    break
-                else:
-                    previous_packet -= 1
-            else:
-                break
-
         if self.is_symbol_decoded(index):
             return
 
-        if self.is_symbol_pivot(index):
-            self.__swap_decode(symbol_data, index ,block_frame)
+        #Calculate delivery time for Source Packet since time arriving up to time Decoding
+        self.packet_delays[index][0] = self.current_timeslot - self.packet_delays[index][0]
 
+        if self.is_symbol_pivot(index):
+            self.__swap_decode(symbol_data, index)
 
 
         #this fixes the issue #1
@@ -288,7 +249,6 @@ class Decoder:
         self._coefficients[index] = bytearray(
             self.field.elements_to_bytes(self.symbols)
         )
-
         self.field.set_value(self.coefficients(index), index, 1)
         self._symbol_status[index] = Decoder.SymbolStatus.DECODED
 
@@ -325,11 +285,9 @@ class Decoder:
             )
         return symbol_data, coefficients
 
-
     def __forward_substitute_to_pivot(
-        self, symbol_data: bytearray, coefficients: bytearray
+            self, symbol_data: bytearray, coefficients: bytearray
     ) -> int:
-
         """
         Forward substitute the given symbol to the pivot symbol.
 
@@ -337,18 +295,15 @@ class Decoder:
         :param coefficients: The coefficients of the symbol.
         :return: The index of the pivot symbol, or none if no pivot symbol
         """
-        
+
         for index in range(self.symbols):
             coefficient = self.field.get_value(coefficients, index)
-
 
             if coefficient == 0:
                 continue
 
-
             if not self.is_symbol_pivot(index):
                 return index
-
 
             self.field.vector_multiply_subtract_into(
                 coefficients, self.coefficients(index), coefficient
@@ -361,7 +316,7 @@ class Decoder:
         return None
 
     def __forward_substitute_from_pivot(
-        self, symbol_data: bytearray, coefficients: bytearray, pivot: int
+            self, symbol_data: bytearray, coefficients: bytearray, pivot: int
     ):
         """
         Forward substitute the given symbol from the pivot symbol.
@@ -385,12 +340,16 @@ class Decoder:
                 coefficients, self.coefficients(index), coefficient
             )
 
+            #If coefficients are decoded , packet is decoded
+            if self.__is_coefficients_decoded(index):
+                self.packet_delays[index][0] = self.current_timeslot - self.packet_delays[index][0]
+
             self.field.vector_multiply_subtract_into(
                 symbol_data, self.symbol_data(index), coefficient
             )
 
     def __backward_substitute(
-        self, symbol_data: bytearray, coefficients: bytearray, pivot_index: int
+            self, symbol_data: bytearray, coefficients: bytearray, pivot_index: int
     ):
         """
         Backward substitute the given symbol.
@@ -409,7 +368,9 @@ class Decoder:
                 # We cannot backward substitute into our self
                 continue
 
+            #If coefficients are decoded , packet is decoded
             if self.is_symbol_decoded(index):
+                self.packet_delays[index][0] = self.current_timeslot - self.packet_delays[index][0]
                 # We know that we have no non-zero elements
                 # outside the pivot position.
                 continue
@@ -417,6 +378,7 @@ class Decoder:
             if self.is_symbol_missing(index):
                 # We do not have a symbol yet here
                 continue
+
 
             coefficient = self.field.get_value(self.coefficients(index), pivot_index)
 
@@ -427,6 +389,11 @@ class Decoder:
             self.field.vector_multiply_subtract_into(
                 self.coefficients(index), coefficients, coefficient
             )
+
+            #If coefficients are decoded , packet is decoded
+            if self.is_symbol_decoded(index):
+                self.packet_delays[index][0] = self.current_timeslot - self.packet_delays[index][0]
+
             self.field.vector_multiply_subtract_into(
                 self.symbol_data(index), symbol_data, coefficient
             )
@@ -450,7 +417,7 @@ class Decoder:
 
         self.field.vector_multiply_into(symbol_data, inverted_coefficient)
 
-    def __swap_decode(self, symbol_data: bytearray, index: int , block_frame: int):
+    def   __swap_decode(self, symbol_data: bytearray, index: int):
         """
         Swap the given symbol with an existing coded symbol.
 
@@ -471,7 +438,7 @@ class Decoder:
         # Process the new coded symbol: we know that it must
         # contain a larger pivot id than the current (unless it is reduced
         # to all zeroes).
-        self.decode_symbol(symbol_i, coefficients_i , block_frame)
+        self.decode_symbol(symbol_i, coefficients_i)
 
     def __is_coefficients_decoded(self, index: int):
         """
@@ -484,7 +451,7 @@ class Decoder:
         if coefficients is None:
             return False
 
-        for i in range(self.symbols):
+        for i in range(len(coefficients)):
             if i == index:
                 continue
 
@@ -493,18 +460,27 @@ class Decoder:
 
         return True
 
-    def compute_average_delay(self , block_frame: int):
 
-        delay = 0
-        for packet in self.packets_delays:
-            delay += (block_frame -  self.get_packet_frame(packet))
+    def update_packet_delay(self, index , symbol):
+        self.packet_delays[index] = [self.current_timeslot , symbol]
 
-        self.sum_of_delay = delay / self.symbols
+    #Average delay for all transmitted packets
+    def counter_packet_delay(self) -> float:
+        return (sum(value[0] for value in self.packet_delays.values())) / len(self.packet_delays)
 
+    def counter_packet_delay_with_source_sceneario(self):
 
+        min_key = min(self.packet_delays)
 
+        for key in self.packet_delays:
 
+            #In case we have source packets , "S" ,  packets should be transmitted in row
+            if self.packet_delays[key][1] == "S":
 
+                if key == min_key:
+                    continue
 
+                self.packet_delays[key] = max(self.packet_delays[key], self.packet_delays[key-1])
 
+        return self.counter_packet_delay()
 
