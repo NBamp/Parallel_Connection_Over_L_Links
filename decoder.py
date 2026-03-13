@@ -54,6 +54,7 @@ class Decoder:
         self.dm_size = 0
         self.packet_delays = {} # dictionary storing packet index and delivery time
         self.current_timeslot = 0 # helper variable for calculating packet delay, avoid changing decode() signature
+        self.useful_packet = False
 
 
 
@@ -87,12 +88,6 @@ class Decoder:
     def update_current_timeslot(self) -> None:
         """Similar to block_frame """
         self.current_timeslot += 1
-
-    # function to calculate statistics at the end of the block
-    def count_delivered_packets(self):
-        for i in range(self.symbols):
-            if self.is_symbol_decoded(i):
-                self.delivered_packets += 1
 
 
     def is_complete(self) -> bool:
@@ -187,12 +182,16 @@ class Decoder:
 
         pivot_index = self.__forward_substitute_to_pivot(symbol_data, coefficients)
 
-
         if pivot_index is None:
             return
 
-        #Adding Coding Packet with arriving time = current_timeslot
-        self.update_packet_delay(pivot_index, "C")
+        #In case we have systematic_schema and coded fills in uncode loss
+        if pivot_index in self.packet_delays:
+            self.packet_delays[pivot_index][0] = self.current_timeslot - self.packet_delays[pivot_index][0]
+            self.packet_delays[pivot_index][1] = "C"
+        else:
+            self.packet_delays[pivot_index] = [self.current_timeslot , "C"]
+
         if not self.field.is_binary():
             self.__normalize(symbol_data, coefficients, pivot_index)
 
@@ -235,8 +234,10 @@ class Decoder:
         if self.is_symbol_decoded(index):
             return
 
-        #Calculate delivery time for Source Packet since time arriving up to time Decoding
-        self.packet_delays[index][0] = self.current_timeslot - self.packet_delays[index][0]
+        #This statement refers in source scenario where uncoded packet stored for the first time when the encoder sends it
+        if index in self.packet_delays:
+            self.packet_delays[index][0] = self.current_timeslot - self.packet_delays[index][0]
+
 
         if self.is_symbol_pivot(index):
             self.__swap_decode(symbol_data, index)
@@ -346,9 +347,14 @@ class Decoder:
                 coefficients, self.coefficients(index), coefficient
             )
 
+            #If coded_packet was useful
+            if self.coefficients(index)[pivot] == 0 and self.packet_delays[index][1] == "C" and self._symbol_status[index] != Decoder.SymbolStatus.DECODED:
+                self.useful_packet = True
+
             #If coefficients are decoded , packet is decoded
             if self.__is_coefficients_decoded(index):
                 self.packet_delays[index][0] = self.current_timeslot - self.packet_delays[index][0]
+                self._symbol_status[index] = Decoder.SymbolStatus.DECODED
 
             self.field.vector_multiply_subtract_into(
                 symbol_data, self.symbol_data(index), coefficient
@@ -396,9 +402,14 @@ class Decoder:
                 self.coefficients(index), coefficients, coefficient
             )
 
+            #If coded_packet was useful
+            if self.coefficients(index)[pivot_index] == 0 and self.packet_delays[index][1] == "C" and self._symbol_status[index] != Decoder.SymbolStatus.DECODED:
+                self.useful_packet = True
+
             #If coefficients are decoded , packet is decoded
             if self.is_symbol_decoded(index):
                 self.packet_delays[index][0] = self.current_timeslot - self.packet_delays[index][0]
+                self._symbol_status[index] = Decoder.SymbolStatus.DECODED
 
             self.field.vector_multiply_subtract_into(
                 self.symbol_data(index), symbol_data, coefficient
@@ -466,9 +477,8 @@ class Decoder:
 
         return True
 
-
-    def update_packet_delay(self, index , symbol):
-        self.packet_delays[index] = [self.current_timeslot , symbol]
+    def update_packet_delay(self, pivot_index , symbol):
+        self.packet_delays[pivot_index] = [self.current_timeslot , symbol]
 
     #Average delay for all transmitted packets
     def counter_packet_delay(self) -> float:
@@ -486,8 +496,7 @@ class Decoder:
                 if key == min_key:
                     continue
 
-                self.packet_delays[key] = max(self.packet_delays[key], self.packet_delays[key-1])
-
+                self.packet_delays[key][0] = max(self.packet_delays[key][0], self.packet_delays[key-1][0])
 
         return self.counter_packet_delay()
 
