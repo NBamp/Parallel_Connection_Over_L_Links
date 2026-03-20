@@ -54,8 +54,7 @@ class Decoder:
         self.dm_size = 0
         self.packet_delays = {} # dictionary storing packet index and delivery time
         self.current_timeslot = 0 # helper variable for calculating packet delay, avoid changing decode() signature
-        self.useful_packet = False
-
+        self.unuseful_packets = 0 #Unuseful coded packet
 
 
     @property
@@ -198,6 +197,7 @@ class Decoder:
         self.__forward_substitute_from_pivot(symbol_data, coefficients, pivot_index)
         self.__backward_substitute(symbol_data, coefficients, pivot_index)
 
+        self.is_subtitute_useful(pivot_index)
 
         # Store coded symbol
         self._symbols_data[pivot_index] = symbol_data
@@ -347,14 +347,6 @@ class Decoder:
                 coefficients, self.coefficients(index), coefficient
             )
 
-            #If coded_packet was useful
-            if self.coefficients(index)[pivot] == 0 and self.packet_delays[index][1] == "C" and self._symbol_status[index] != Decoder.SymbolStatus.DECODED:
-                self.useful_packet = True
-
-            #If coefficients are decoded , packet is decoded
-            if self.__is_coefficients_decoded(index):
-                self.packet_delays[index][0] = self.current_timeslot - self.packet_delays[index][0]
-                self._symbol_status[index] = Decoder.SymbolStatus.DECODED
 
             self.field.vector_multiply_subtract_into(
                 symbol_data, self.symbol_data(index), coefficient
@@ -382,7 +374,6 @@ class Decoder:
 
             #If coefficients are decoded , packet is decoded
             if self.is_symbol_decoded(index):
-                self.packet_delays[index][0] = self.current_timeslot - self.packet_delays[index][0]
                 # We know that we have no non-zero elements
                 # outside the pivot position.
                 continue
@@ -401,15 +392,6 @@ class Decoder:
             self.field.vector_multiply_subtract_into(
                 self.coefficients(index), coefficients, coefficient
             )
-
-            #If coded_packet was useful
-            if self.coefficients(index)[pivot_index] == 0 and self.packet_delays[index][1] == "C" and self._symbol_status[index] != Decoder.SymbolStatus.DECODED:
-                self.useful_packet = True
-
-            #If coefficients are decoded , packet is decoded
-            if self.is_symbol_decoded(index):
-                self.packet_delays[index][0] = self.current_timeslot - self.packet_delays[index][0]
-                self._symbol_status[index] = Decoder.SymbolStatus.DECODED
 
             self.field.vector_multiply_subtract_into(
                 self.symbol_data(index), symbol_data, coefficient
@@ -500,3 +482,24 @@ class Decoder:
 
         return self.counter_packet_delay()
 
+
+    def is_subtitute_useful(self, pivot_index: int):
+
+        for index in range(self.symbols):
+
+            if index == pivot_index or self.is_symbol_decoded(index):
+                continue
+
+            #In this case subtitute is useful
+            if (index in self.packet_delays) and (self.packet_delays[index][1] == "C") and (self.coefficients(index)[pivot_index] == 0):
+
+                if self.__is_coefficients_decoded(index):
+                    self.packet_delays[index][0] = self.current_timeslot - self.packet_delays[index][0]
+                    self._symbol_status[index] = Decoder.SymbolStatus.DECODED
+
+            elif (index in self.packet_delays) and (self.packet_delays[index][1] == "C") and (self.coefficients(index)[pivot_index] != 0):
+                self.unuseful_packets += 1
+
+
+    def reset_unuseful_packet(self):
+        self.unuseful_packets = 0
