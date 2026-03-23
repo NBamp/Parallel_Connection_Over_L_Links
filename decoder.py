@@ -184,9 +184,8 @@ class Decoder:
         if pivot_index is None:
             return
 
-        #In case we have systematic_schema and coded fills in uncode loss
+        #In case we have systematic_schema and coded fills in uncoded loss
         if pivot_index in self.packet_delays:
-            self.packet_delays[pivot_index][0] = self.current_timeslot - self.packet_delays[pivot_index][0]
             self.packet_delays[pivot_index][1] = "C"
         else:
             self.packet_delays[pivot_index] = [self.current_timeslot , "C"]
@@ -486,16 +485,14 @@ class Decoder:
     def is_subtitute_useful(self, pivot_index: int):
 
         for index in range(self.symbols):
-
-            if index == pivot_index or self.is_symbol_decoded(index):
+    
+            if index == pivot_index :
                 continue
 
-            #In this case subtitute is useful
             if (index in self.packet_delays) and (self.packet_delays[index][1] == "C") and (self.coefficients(index)[pivot_index] == 0):
 
-                if self.__is_coefficients_decoded(index):
+                if self.is_symbol_decoded(index):
                     self.packet_delays[index][0] = self.current_timeslot - self.packet_delays[index][0]
-                    self._symbol_status[index] = Decoder.SymbolStatus.DECODED
 
             elif (index in self.packet_delays) and (self.packet_delays[index][1] == "C") and (self.coefficients(index)[pivot_index] != 0):
                 self.unuseful_packets += 1
