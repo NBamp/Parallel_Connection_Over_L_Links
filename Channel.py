@@ -58,26 +58,6 @@ class Channel:
         self._unused_packets = number
 
 
-    def update_by_the_end_of_frame(self, trans, loss):
-        self._frames += 1
-        self._channel_transmitted_dict[self._frames] = [trans, loss]
-
-
-    #Computing delay and successfully transmitted packets per block
-    def compute_delay_and_successfully_transmitted_packets_per_block(self):
-        delay = 0
-        successfully_transmitted_packets_per_block = 0
-        for i in self._channel_transmitted_dict:
-            successfully_transmitted_packets_per_block += self._channel_transmitted_dict[i][0]
-            delay += (self.frames - i) * self._channel_transmitted_dict[i][0]
-
-        return delay, successfully_transmitted_packets_per_block
-
-    def compute_number_of_losses_per_block(self):
-        loss = 0
-        for i in self._channel_transmitted_dict:
-            loss += self._channel_transmitted_dict[i][1]
-        return loss
 
 
 
