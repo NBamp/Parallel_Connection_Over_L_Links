@@ -55,6 +55,7 @@ class Decoder:
         self.packet_delays = {} # dictionary storing packet index and delivery time
         self.current_timeslot = 0 # helper variable for calculating packet delay, avoid changing decode() signature
         self.unuseful_packets = 0 #Unuseful coded packet
+        self.last_source_received_id = 0
 
 
     @property
@@ -181,7 +182,10 @@ class Decoder:
 
         pivot_index = self.__forward_substitute_to_pivot(symbol_data, coefficients)
 
+        #The extra coded which is not useful for decoding missing source packet , will theoretically get pivot index = last_source_received_id + 1,
+        #But because Coded packets are generated partial with the number of Packets  Encoder sent , in the above position the number is 0 , so it isn't happening any decoding.
         if pivot_index is None:
+            self.unuseful_packets += 1
             return
 
         #In case we have systematic_schema and coded fills in uncoded loss
@@ -196,24 +200,24 @@ class Decoder:
         self.__forward_substitute_from_pivot(symbol_data, coefficients, pivot_index)
         self.__backward_substitute(symbol_data, coefficients, pivot_index)
 
-        self.is_subtitute_useful(pivot_index)
-
         # Store coded symbol
         self._symbols_data[pivot_index] = symbol_data
         self._coefficients[pivot_index] = coefficients
 
-        self._symbol_status[pivot_index] = Decoder.SymbolStatus.PARTIALLY_DECODED
-        self._rank += 1
+        self.is_packet_decoded()
 
+        if self._symbol_status[pivot_index]  == Decoder.SymbolStatus.MISSING:
+            self._symbol_status[pivot_index] = Decoder.SymbolStatus.PARTIALLY_DECODED
+
+        self._rank += 1
         self.decoding_attempts += 1
         self.dm_size += self._rank
-
 
         if self.is_complete():
 
             #The last coded symbol has for a fact delay = 0
             if pivot_index == self._rank:
-                self.packet_delays[pivot_index] = 0
+                self.packet_delays[pivot_index][0] = 0
             # We have decoded all symbols
             self._symbol_status = [Decoder.SymbolStatus.DECODED] * self.symbols
 
@@ -234,7 +238,7 @@ class Decoder:
             return
 
         #This statement refers in source scenario where uncoded packet stored for the first time when the encoder sends it
-        if index in self.packet_delays:
+        if index in self.packet_delays and self.current_timeslot > self.packet_delays[index][0]:
             self.packet_delays[index][0] = self.current_timeslot - self.packet_delays[index][0]
 
 
@@ -460,6 +464,7 @@ class Decoder:
 
     def update_packet_delay(self, pivot_index , symbol):
         self.packet_delays[pivot_index] = [self.current_timeslot , symbol]
+        self.last_source_received_id = pivot_index  #Stores the index of last source packet which was sent from Encoder
 
     #Average delay for all transmitted packets
     def counter_packet_delay(self) -> float:
@@ -469,34 +474,23 @@ class Decoder:
 
         min_key = min(self.packet_delays)
 
+        #In order to sort the dictionary based on key.
+        self.packet_delays = {key : self.packet_delays[key] for key in sorted(self.packet_delays)}
         for key in self.packet_delays:
 
-            #In case we have source packets , "S" ,  packets should be transmitted in row
-            if self.packet_delays[key][1] == "S":
+            if key == min_key:
+                continue
 
-                if key == min_key:
-                    continue
-
-                self.packet_delays[key][0] = max(self.packet_delays[key][0], self.packet_delays[key-1][0])
+            self.packet_delays[key][0] = max(self.packet_delays[key][0], self.packet_delays[key-1][0])
 
         return self.counter_packet_delay()
 
 
-    def is_subtitute_useful(self, pivot_index: int):
+    def is_packet_decoded(self):
 
         for index in range(self.symbols):
-    
-            if index == pivot_index :
-                continue
 
-            if (index in self.packet_delays) and (self.packet_delays[index][1] == "C") and (self.coefficients(index)[pivot_index] == 0):
+            if (index in self.packet_delays) and (self.packet_delays[index][1] == "C" and self._symbol_status[index] != Decoder.SymbolStatus.DECODED):
 
                 if self.is_symbol_decoded(index):
                     self.packet_delays[index][0] = self.current_timeslot - self.packet_delays[index][0]
-
-            elif (index in self.packet_delays) and (self.packet_delays[index][1] == "C") and (self.coefficients(index)[pivot_index] != 0):
-                self.unuseful_packets += 1
-
-
-    def reset_unuseful_packet(self):
-        self.unuseful_packets = 0
