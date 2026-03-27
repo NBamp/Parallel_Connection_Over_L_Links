@@ -99,7 +99,7 @@ def main():
 
         statistics['total_successful_packets'].append(successfully_transmitted_packets_per_block)
         statistics['total_lost_packets'].append(loss_packets_per_block)
-        statistics['total_unuseful_packets'].append(unuseful_packets_per_block)
+        statistics['total_unused_packets'].append(unuseful_packets_per_block)
         statistics['total_frames'].append(block_frame)
         statistics['data_rate'].append(data_rate_per_block)
         statistics['avg_delay'].append(delay_per_block)
@@ -116,7 +116,7 @@ def main():
         print(f"Total successfully transmitted packets are {successfully_transmitted_packets_per_block}!")
         print(f"Total lost packets are {loss_packets_per_block}!")
         print(f"Total useful packets are {decoder.rank}!")
-        print(f"Total unused packets are  {statistics['total_unuseful_packets'][-1]}!")
+        print(f"Total unused packets are  {statistics['total_unused_packets'][-1]}!")
         print(f"Average delay = {delay_per_block:.2f} frame\nThroughput = {data_rate_per_block:.2f} bytes/frame!")
         print("---------------------------------------\n\n")
 
