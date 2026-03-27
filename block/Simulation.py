@@ -29,7 +29,7 @@ def initialize_simulation_state():
         'total_frames': [],
         'total_successful_packets': [],
         'total_lost_packets': [],
-        'total_unuseful_packets': []
+        'total_unused_packets': []
     }
 
 def setup_channels(symbol_bytes):
